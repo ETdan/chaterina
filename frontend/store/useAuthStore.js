@@ -5,105 +5,106 @@ import { io } from "socket.io-client";
 
 const BASE_URL = import.meta.env.MODE === "development" ? import.meta.env.VITE_API_BASE_URL : "/";
 
-export const useAuthStore = create((set, get) => ({
-  authUser: null,
-  isSigningUp: false,
-  isLoggingIn: false,
-  isUpdatingProfile: false,
-  isCheckingAuth: true,
-  error: null,
-  onlineUsers: [],
-  socket: null,
+export const useAuthStore = create((set, get) => {
+  const setLoading = (key, value) => set({ [key]: value });
 
-  checkAuth: async () => {
-    try {
-      const res = await axiosInstance.get("/auth/check");
+  const handleError = (error, defaultMsg = "Something went wrong") => {
+    const message = error.response?.data?.message || defaultMsg;
+    console.error(message);
+    toast.error(message);
+    return message;
+  };
 
-      set({ authUser: res.data });
-      get().connectSocket();
-    } catch (error) {
-      console.log("Error in checkAuth:", error);
-      set({ error: error.response.data.message });
-      set({ authUser: null });
-    } finally {
-      set({ isCheckingAuth: false });
-    }
-  },
+  const handleSuccess = (message) => toast.success(message);
 
-  signup: async (data) => {
-    set({ isSigningUp: true });
-    try {
-      const res = await axiosInstance.post("/auth/signup", data);
-      set({ authUser: res.data });
-      toast.success("Account created successfully");
-      get().connectSocket();
-    } catch (error) {
-      toast.error(error.response.data.message);
-    } finally {
-      set({ isSigningUp: false });
-    }
-  },
+  const connectSocket = () => {
+    const { authUser, socket } = get();
+    if (!authUser || socket?.connected) return;
 
-  login: async (data) => {
-    set({ isLoggingIn: true });
-    try {
-      console.log("logging in ...")
-      const res = await axiosInstance.post("/auth/login", data);
-      set({ authUser: res.data });
-      toast.success("Logged in successfully");
+    const newSocket = io(BASE_URL, { query: { userId: authUser._id } });
+    set({ socket: newSocket });
 
-      get().connectSocket();
-    } catch (error) {
-      console.log("error in login:", error);
-      toast.error(error.message);
-    } finally {
-      set({ isLoggingIn: false });
-    }
-  },
+    newSocket.on("getOnlineUsers", (userIds) => set({ onlineUsers: userIds }));
+  };
 
-  logout: async () => {
-    try {
-      await axiosInstance.post("/auth/logout");
-      set({ authUser: null });
-      toast.success("Logged out successfully");
-      get().disconnectSocket();
-    } catch (error) {
-      toast.error(error.response.data.message);
-    }
-  },
+  const disconnectSocket = () => {
+    const { socket } = get();
+    if (socket?.connected) socket.disconnect();
+  };
 
-  updateProfile: async (data) => {
-    set({ isUpdatingProfile: true });
-    try {
-      const res = await axiosInstance.put("/auth/update-profile", data);
-      set({ authUser: res.data });
-      toast.success("Profile updated successfully");
-    } catch (error) {
-      console.log("error in update profile:", error);
-      toast.error(error.response.data.message);
-    } finally {
-      set({ isUpdatingProfile: false });
-    }
-  },
+  return {
+    authUser: null,
+    isSigningUp: false,
+    isLoggingIn: false,
+    isUpdatingProfile: false,
+    isCheckingAuth: true,
+    error: null,
+    onlineUsers: [],
+    socket: null,
 
-  connectSocket: () => {
-    const { authUser } = get();
-    if (!authUser || get().socket?.connected) return;
+    checkAuth: async () => {
+      setLoading("isCheckingAuth", true);
+      try {
+        const res = await axiosInstance.get("/auth/check");
+        set({ authUser: res.data });
+        connectSocket();
+      } catch (error) {
+        set({ authUser: null, error: handleError(error) });
+      } finally {
+        setLoading("isCheckingAuth", false);
+      }
+    },
 
-    const socket = io(BASE_URL, {
-      query: {
-        userId: authUser._id,
-      },
-    });
-    socket.connect();
+    signup: async (data) => {
+      setLoading("isSigningUp", true);
+      try {
+        const res = await axiosInstance.post("/auth/signup", data);
+        set({ authUser: res.data });
+        handleSuccess("Account created successfully");
+        connectSocket();
+      } catch (error) {
+        handleError(error);
+      } finally {
+        setLoading("isSigningUp", false);
+      }
+    },
 
-    set({ socket: socket });
+    login: async (data) => {
+      setLoading("isLoggingIn", true);
+      try {
+        const res = await axiosInstance.post("/auth/login", data);
+        set({ authUser: res.data });
+        handleSuccess("Logged in successfully");
+        connectSocket();
+      } catch (error) {
+        handleError(error);
+      } finally {
+        setLoading("isLoggingIn", false);
+      }
+    },
 
-    socket.on("getOnlineUsers", (userIds) => {
-      set({ onlineUsers: userIds });
-    });
-  },
-  disconnectSocket: () => {
-    if (get().socket?.connected) get().socket.disconnect();
-  },
-}));
+    logout: async () => {
+      try {
+        await axiosInstance.post("/auth/logout");
+        set({ authUser: null });
+        handleSuccess("Logged out successfully");
+        disconnectSocket();
+      } catch (error) {
+        handleError(error);
+      }
+    },
+
+    updateProfile: async (data) => {
+      setLoading("isUpdatingProfile", true);
+      try {
+        const res = await axiosInstance.put("/auth/update-profile", data);
+        set({ authUser: res.data });
+        handleSuccess("Profile updated successfully");
+      } catch (error) {
+        handleError(error);
+      } finally {
+        setLoading("isUpdatingProfile", false);
+      }
+    },
+  };
+});
